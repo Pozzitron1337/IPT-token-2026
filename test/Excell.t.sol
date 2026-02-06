@@ -39,7 +39,6 @@ contract ExcellTest is Test {
         assertEq(address(excell.iptToken()), address(ipt));
         assertEq(excell.getStudentCount(), 0);
         assertEq(excell.getApprovedStudentCount(), 0);
-        assertTrue(excell.hasRole(excell.DEFAULT_ADMIN_ROLE(), admin));
     }
 
     function test_StudentRegisters() public {
@@ -495,8 +494,9 @@ contract ExcellTest is Test {
         vm.prank(tutor1);
         excell.approvePointsRequest(1);
         
-        Excell.PointsRequest[] memory pending = excell.getPendingPointsRequests();
+        (Excell.PointsRequest[] memory pending, uint256[] memory pendingIds) = excell.getPendingPointsRequests();
         assertEq(pending.length, 1);
+        assertEq(pendingIds.length, 1);
         assertEq(pending[0].requestId, 2);
     }
 
@@ -529,8 +529,9 @@ contract ExcellTest is Test {
         vm.prank(tutor2);
         excell.approvePointsRequest(2);
         
-        Excell.PointsRequest[] memory approved = excell.getApprovedPointsRequests();
+        (Excell.PointsRequest[] memory approved, uint256[] memory requestIds) = excell.getApprovedPointsRequests();
         assertEq(approved.length, 2);
+        assertEq(requestIds.length, 2);
     }
 
     // Lab Functions Tests
@@ -542,16 +543,16 @@ contract ExcellTest is Test {
         vm.prank(tutor1);
         excell.approve(student1);
         
-        // Student completes lab_introduction
+        // Student completes lab_wallet_creation
         vm.prank(student1);
-        uint256 requestId = excell.labIntroduction();
+        uint256 requestId = excell.labWalletCreation();
         
         assertEq(requestId, 1);
-        assertTrue(excell.hasCompletedLab(student1, "lab_introduction"));
+        assertTrue(excell.hasCompletedLab(student1, "lab_wallet_creation"));
         
         Excell.PointsRequest memory request = excell.getPointsRequest(requestId);
-        assertEq(request.amount, excell.getLabAward("lab_introduction"));
-        assertEq(request.description, "Lab: Introduction completed");
+        assertEq(request.amount, excell.getLabReward("lab_wallet_creation"));
+        assertEq(request.description, "Lab: wallet creation completed");
         assertEq(request.studentAddress, student1);
     }
 
@@ -571,7 +572,7 @@ contract ExcellTest is Test {
         assertTrue(excell.hasCompletedLab(student1, "lab_erc20"));
         
         Excell.PointsRequest memory request = excell.getPointsRequest(requestId);
-        assertEq(request.amount, excell.getLabAward("lab_erc20"));
+        assertEq(request.amount, excell.getLabReward("lab_erc20"));
         assertEq(request.description, "Lab: ERC20 completed");
     }
 
@@ -591,7 +592,7 @@ contract ExcellTest is Test {
         assertTrue(excell.hasCompletedLab(student1, "lab_nft"));
         
         Excell.PointsRequest memory request = excell.getPointsRequest(requestId);
-        assertEq(request.amount, excell.getLabAward("lab_nft"));
+        assertEq(request.amount, excell.getLabReward("lab_nft"));
         assertEq(request.description, "Lab: NFT completed");
     }
 
@@ -605,7 +606,7 @@ contract ExcellTest is Test {
         
         // Complete all labs
         vm.prank(student1);
-        excell.labIntroduction();
+        excell.labWalletCreation();
         
         vm.prank(student1);
         excell.labErc20();
@@ -613,7 +614,7 @@ contract ExcellTest is Test {
         vm.prank(student1);
         excell.labNft();
         
-        assertTrue(excell.hasCompletedLab(student1, "lab_introduction"));
+        assertTrue(excell.hasCompletedLab(student1, "lab_wallet_creation"));
         assertTrue(excell.hasCompletedLab(student1, "lab_erc20"));
         assertTrue(excell.hasCompletedLab(student1, "lab_nft"));
         
@@ -627,7 +628,7 @@ contract ExcellTest is Test {
         
         vm.prank(student1);
         vm.expectRevert("Excell: Only approved students can complete labs");
-        excell.labIntroduction();
+        excell.labWalletCreation();
     }
 
     function test_LabCannotCompleteTwice() public {
@@ -640,12 +641,12 @@ contract ExcellTest is Test {
         
         // Complete lab once
         vm.prank(student1);
-        excell.labIntroduction();
+        excell.labWalletCreation();
         
         // Try to complete again
         vm.prank(student1);
         vm.expectRevert("Excell: Lab already completed");
-        excell.labIntroduction();
+        excell.labWalletCreation();
     }
 
     function test_LabApprovalTransfersTokens() public {
@@ -656,7 +657,7 @@ contract ExcellTest is Test {
         vm.prank(tutor1);
         excell.approve(student1);
         
-        uint256 labAward = excell.getLabAward("lab_introduction");
+        uint256 labAward = excell.getLabReward("lab_wallet_creation");
         
         // Mint tokens to tutor so they can transfer them
         vm.prank(admin);
@@ -664,7 +665,7 @@ contract ExcellTest is Test {
         
         // Complete lab
         vm.prank(student1);
-        uint256 requestId = excell.labIntroduction();
+        uint256 requestId = excell.labWalletCreation();
         
         uint256 studentBalanceBefore = ipt.balanceOf(student1);
         uint256 tutorBalanceBefore = ipt.balanceOf(tutor1);
@@ -691,14 +692,14 @@ contract ExcellTest is Test {
         vm.prank(tutor1);
         excell.approve(student1);
         
-        assertFalse(excell.hasCompletedLab(student1, "lab_introduction"));
+        assertFalse(excell.hasCompletedLab(student1, "lab_wallet_creation"));
         assertFalse(excell.hasCompletedLab(student1, "lab_erc20"));
         assertFalse(excell.hasCompletedLab(student1, "lab_nft"));
         
         vm.prank(student1);
-        excell.labIntroduction();
+        excell.labWalletCreation();
         
-        assertTrue(excell.hasCompletedLab(student1, "lab_introduction"));
+        assertTrue(excell.hasCompletedLab(student1, "lab_wallet_creation"));
         assertFalse(excell.hasCompletedLab(student1, "lab_erc20"));
         assertFalse(excell.hasCompletedLab(student1, "lab_nft"));
     }

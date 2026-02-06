@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {IIPT} from "./interfaces/IIPT.sol";
 import {IExcell} from "./interfaces/IExcell.sol";
 
 /// @title Excell
 /// @dev Contract for managing student registration and records
-contract Excell is AccessControl, IExcell {
+contract Excell is IExcell {
     /// @dev Mapping from student address to student information
     mapping(address => StudentData) public students;
 
@@ -36,7 +35,7 @@ contract Excell is AccessControl, IExcell {
     mapping(address => mapping(string => bool)) public completedLabs;
 
     /// @dev Mapping from lab name to IPT tokens awarded
-    mapping(string => uint256) public iptTokensAward;
+    mapping(string => uint256) public iptTokensReward;
 
     /// @dev Event emitted when a student submits registration request
     event RegistrationRequested(address indexed student, string name, uint256 registrationDate);
@@ -76,14 +75,15 @@ contract Excell is AccessControl, IExcell {
     /// @dev Constructor that sets up the contract
     /// @param iptTokenAddress Address of the IPT token contract
     constructor(address iptTokenAddress) {
-        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+        require(iptTokenAddress != address(0));
         iptToken = IIPT(iptTokenAddress);
         
         uint8 iptTokenDecimals = iptToken.decimals();
-        // Initialize lab IPT tokens mapping
-        iptTokensAward["lab_introduction"] = 20 * 10 ** iptTokenDecimals; 
-        iptTokensAward["lab_erc20"] = 40 * 10 ** iptTokenDecimals;
-        iptTokensAward["lab_nft"] = 40 * 10 ** iptTokenDecimals;
+        /// TODO initial distribution
+        iptTokensReward["lab_wallet_creation"] = 10 * 10 ** iptTokenDecimals;
+        iptTokensReward["lab_smart_contract"] = 20 * 10 ** iptTokenDecimals; 
+        iptTokensReward["lab_erc20"] = 40 * 10 ** iptTokenDecimals;
+        iptTokensReward["lab_nft"] = 40 * 10 ** iptTokenDecimals;
     }
 
     /// @dev Student submits registration request
@@ -269,6 +269,51 @@ contract Excell is AccessControl, IExcell {
         );
     }
 
+    /// @dev Tutor batch-approves points requests (only for tutors from IPT token)
+    /// @param requestIds Array of request IDs to approve
+    function batchApprovePointsRequest(uint256[] calldata requestIds) external {
+        require(iptToken.isTutor(msg.sender), "Excell: Only tutors can approve points requests");
+        uint256 totalAmount = 0;
+
+        // First, check all requests for eligibility and sum up the total amount needed
+        for (uint256 i = 0; i < requestIds.length; i++) {
+            uint256 reqId = requestIds[i];
+            require(pointsRequests[reqId].exists, "Excell: Request does not exist");
+            require(
+                pointsRequests[reqId].status == IExcell.RequestStatus.Pending,
+                "Excell: Request already processed"
+            );
+            totalAmount += pointsRequests[reqId].amount;
+        }
+
+        // Check if tutor has enough balance and allowance for all approvals at once
+        require(iptToken.balanceOf(msg.sender) >= totalAmount, "Excell: Insufficient tutor balance");
+        require(iptToken.allowance(msg.sender, address(this)) >= totalAmount, "Excell: Insufficient allowance");
+
+        // Now process each request
+        for (uint256 i = 0; i < requestIds.length; i++) {
+            uint256 reqId = requestIds[i];
+            PointsRequest storage request = pointsRequests[reqId];
+
+            request.status = IExcell.RequestStatus.Approved;
+            request.approvalDate = block.timestamp;
+            request.approvedBy = msg.sender;
+
+            require(
+                iptToken.transferFrom(msg.sender, request.studentAddress, request.amount),
+                "Excell: Transfer failed"
+            );
+
+            emit PointsRequestApproved(
+                reqId,
+                request.studentAddress,
+                msg.sender,
+                request.amount,
+                block.timestamp
+            );
+        }
+    }
+
     /// @dev Tutor rejects points request (only for tutors from IPT token)
     /// @param requestId ID of the request to reject
     function rejectPointsRequest(uint256 requestId) external {
@@ -291,6 +336,36 @@ contract Excell is AccessControl, IExcell {
             msg.sender,
             block.timestamp
         );
+    }
+
+    /// @dev Tutor can batch reject multiple points requests (only for tutors from IPT token)
+    /// @param requestIds Array of request IDs to reject
+    function batchRejectPointsRequest(uint256[] calldata requestIds) external {
+        require(iptToken.isTutor(msg.sender), "Excell: Only tutors can reject points requests");
+        require(requestIds.length > 0, "Excell: No requests to reject");
+
+        for (uint256 i = 0; i < requestIds.length; i++) {
+            uint256 requestId = requestIds[i];
+
+            require(pointsRequests[requestId].exists, "Excell: Request does not exist");
+            require(
+                pointsRequests[requestId].status == IExcell.RequestStatus.Pending,
+                "Excell: Request already processed"
+            );
+
+            PointsRequest storage request = pointsRequests[requestId];
+
+            request.status = IExcell.RequestStatus.Rejected;
+            request.approvalDate = block.timestamp;
+            request.approvedBy = msg.sender;
+
+            emit PointsRequestRejected(
+                requestId,
+                request.studentAddress,
+                msg.sender,
+                block.timestamp
+            );
+        }
     }
 
     /// @dev Gets points request by ID
@@ -316,8 +391,8 @@ contract Excell is AccessControl, IExcell {
     }
 
     /// @dev Gets all pending points requests
-    /// @return Array of PointsRequest structs
-    function getPendingPointsRequests() external view returns (PointsRequest[] memory) {
+    /// @return Array of PointsRequest structs, Array of corresponding request IDs
+    function getPendingPointsRequests() external view returns (PointsRequest[] memory, uint256[] memory) {
         uint256 pendingCount = 0;
         
         // Count pending requests
@@ -327,23 +402,26 @@ contract Excell is AccessControl, IExcell {
             }
         }
         
-        // Create array with exact size
+        // Create arrays with exact size
         PointsRequest[] memory pending = new PointsRequest[](pendingCount);
+        uint256[] memory requestIds = new uint256[](pendingCount);
         uint256 index = 0;
         
         for (uint256 i = 0; i < allRequestIds.length; i++) {
-            if (pointsRequests[allRequestIds[i]].status == IExcell.RequestStatus.Pending) {
-                pending[index] = pointsRequests[allRequestIds[i]];
+            uint256 reqId = allRequestIds[i];
+            if (pointsRequests[reqId].status == IExcell.RequestStatus.Pending) {
+                pending[index] = pointsRequests[reqId];
+                requestIds[index] = reqId;
                 index++;
             }
         }
         
-        return pending;
+        return (pending, requestIds);
     }
 
     /// @dev Gets all approved points requests
-    /// @return Array of PointsRequest structs
-    function getApprovedPointsRequests() external view returns (PointsRequest[] memory) {
+    /// @return Array of PointsRequest structs, Array of corresponding request IDs
+    function getApprovedPointsRequests() external view returns (PointsRequest[] memory, uint256[] memory) {
         uint256 approvedCount = 0;
         
         // Count approved requests
@@ -353,23 +431,26 @@ contract Excell is AccessControl, IExcell {
             }
         }
         
-        // Create array with exact size
+        // Create arrays with exact size
         PointsRequest[] memory approved = new PointsRequest[](approvedCount);
+        uint256[] memory requestIds = new uint256[](approvedCount);
         uint256 index = 0;
         
         for (uint256 i = 0; i < allRequestIds.length; i++) {
-            if (pointsRequests[allRequestIds[i]].status == IExcell.RequestStatus.Approved) {
-                approved[index] = pointsRequests[allRequestIds[i]];
+            uint256 reqId = allRequestIds[i];
+            if (pointsRequests[reqId].status == IExcell.RequestStatus.Approved) {
+                approved[index] = pointsRequests[reqId];
+                requestIds[index] = reqId;
                 index++;
             }
         }
         
-        return approved;
+        return (approved, requestIds);
     }
 
     /// @dev Gets all rejected points requests
-    /// @return Array of PointsRequest structs
-    function getRejectedPointsRequests() external view returns (PointsRequest[] memory) {
+    /// @return Array of PointsRequest structs, Array of corresponding request IDs
+    function getRejectedPointsRequests() external view returns (PointsRequest[] memory, uint256[] memory) {
         uint256 rejectedCount = 0;
         
         // Count rejected requests
@@ -379,18 +460,21 @@ contract Excell is AccessControl, IExcell {
             }
         }
         
-        // Create array with exact size
+        // Create arrays with exact size
         PointsRequest[] memory rejected = new PointsRequest[](rejectedCount);
+        uint256[] memory requestIds = new uint256[](rejectedCount);
         uint256 index = 0;
         
         for (uint256 i = 0; i < allRequestIds.length; i++) {
-            if (pointsRequests[allRequestIds[i]].status == IExcell.RequestStatus.Rejected) {
-                rejected[index] = pointsRequests[allRequestIds[i]];
+            uint256 reqId = allRequestIds[i];
+            if (pointsRequests[reqId].status == IExcell.RequestStatus.Rejected) {
+                rejected[index] = pointsRequests[reqId];
+                requestIds[index] = reqId;
                 index++;
             }
         }
         
-        return rejected;
+        return (rejected, requestIds);
     }
 
     /// @dev Gets the total number of points requests
@@ -407,31 +491,43 @@ contract Excell is AccessControl, IExcell {
         return completedLabs[studentAddress][labName];
     }
 
-    /// @dev Gets IPT tokens awarded for a specific lab
+    /// @dev Gets points awarded for a lab for a student (0 if lab not completed)
+    /// @param studentAddress Address of the student
     /// @param labName Name of the lab
-    /// @return IPT tokens awarded for completing the lab (0 if lab doesn't exist)
-    function getLabAward(string memory labName) external view returns (uint256) {
-        return iptTokensAward[labName];
+    /// @return points Amount of IPT tokens awarded for the lab (0 if student hasn't completed)
+    function getStudentLabStatus(address studentAddress, string memory labName) external view returns (uint256) {
+        if (!completedLabs[studentAddress][labName]) {
+            return 0;
+        }
+        return iptTokensReward[labName];
     }
 
-    /// @dev Sets IPT tokens for a lab (only admin)
+    /// @dev Gets IPT tokens awarded for a specific lab (IExcell alias)
+    function getLabReward(string memory labName) external view returns (uint256) {
+        return iptTokensReward[labName];
+    }
+
+    /// @dev Sets IPT tokens for a lab (only tutors from IPT token)
     /// @param labName Name of the lab
     /// @param iptTokens IPT tokens to award for completing the lab
-    function setLabAward(string memory labName, uint256 iptTokens) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setLabReward(string memory labName, uint256 iptTokens) external {
+        require(iptToken.isTutor(msg.sender), "Excell: Only tutors can set lab reward");
         require(bytes(labName).length > 0, "Excell: Lab name cannot be empty");
-        iptTokensAward[labName] = iptTokens;
+        iptTokensReward[labName] = iptTokens;
     }
+
+    /// STUDENT FUNCTIONS SPACE ///
 
     /// @dev Internal function to complete a lab and request points
     /// @param labName Name of the lab
     /// @param description Description for the points request
     /// @return requestId The ID of the created request
-    function completeLab(string memory labName, string memory description) public returns (uint256) {
+    function _completeLab(string memory labName, string memory description) internal returns (uint256) {
         address studentAddress = msg.sender;
         require(students[studentAddress].isApproved, "Excell: Only approved students can complete labs");
         require(!completedLabs[studentAddress][labName], "Excell: Lab already completed");
         
-        uint256 iptTokens = iptTokensAward[labName];
+        uint256 iptTokens = iptTokensReward[labName];
         require(iptTokens > 0, "Excell: Lab not found or has no IPT tokens assigned");
 
         completedLabs[studentAddress][labName] = true;
@@ -442,22 +538,28 @@ contract Excell is AccessControl, IExcell {
         return requestId;
     }
 
-    /// @dev Student completes lab_introduction and requests points
+    /// @dev Student completes lab_wallet_creation and requests points
     /// @return requestId The ID of the created request
-    function labIntroduction() external returns (uint256) {
-        return completeLab("lab_introduction", "Lab: Introduction completed");
+    function labWalletCreation() external returns (uint256) {
+        return _completeLab("lab_wallet_creation", "Lab: wallet creation completed");
+    }
+
+    /// @dev Student completes lab_smart_contract and requests points
+    /// @return requestId The ID of the created request
+    function labSmartContract() external returns (uint256) {
+        return _completeLab("lab_smart_contract", "Lab: smart contract completed");
     }
 
     /// @dev Student completes lab_erc20 and requests points
     /// @return requestId The ID of the created request
     function labErc20() external returns (uint256) {
-        return completeLab("lab_erc20", "Lab: ERC20 completed");
+        return _completeLab("lab_erc20", "Lab: ERC20 completed");
     }
 
     /// @dev Student completes lab_nft and requests points
     /// @return requestId The ID of the created request
     function labNft() external returns (uint256) {
-        return completeLab("lab_nft", "Lab: NFT completed");
+        return _completeLab("lab_nft", "Lab: NFT completed");
     }
 
 }

@@ -27,17 +27,19 @@ contract IPTTest is Test {
         assertEq(ipt.name(), "Institute of Physics and Technology. Introduction to Blockchain course points 2026");
         assertEq(ipt.symbol(), "IPT-2026");
         assertEq(ipt.decimals(), 18);
-        assertEq(ipt.totalSupply(), 0);
+        assertEq(ipt.totalSupply(), 10_000 * 10 ** 18);
+        assertEq(ipt.balanceOf(admin), 10_000 * 10 ** 18);
         assertTrue(ipt.hasRole(ipt.DEFAULT_ADMIN_ROLE(), admin));
     }
 
     function test_Mint() public {
         uint256 amount = 1000 * 10 ** 18;
+        uint256 initialSupply = 10_000 * 10 ** 18;
         vm.prank(tutor1);
         ipt.mint(user1, amount);
         
         assertEq(ipt.balanceOf(user1), amount);
-        assertEq(ipt.totalSupply(), amount);
+        assertEq(ipt.totalSupply(), initialSupply + amount);
     }
 
     function test_MintOnlyTutor() public {
@@ -49,6 +51,7 @@ contract IPTTest is Test {
     function test_MintByMultipleTutors() public {
         uint256 amount1 = 500 * 10 ** 18;
         uint256 amount2 = 300 * 10 ** 18;
+        uint256 initialSupply = 10_000 * 10 ** 18;
         
         ipt.grantTutorRole(tutor2);
         
@@ -60,12 +63,13 @@ contract IPTTest is Test {
         
         assertEq(ipt.balanceOf(user1), amount1);
         assertEq(ipt.balanceOf(user2), amount2);
-        assertEq(ipt.totalSupply(), amount1 + amount2);
+        assertEq(ipt.totalSupply(), initialSupply + amount1 + amount2);
     }
 
     function test_Burn() public {
         uint256 mintAmount = 1000 * 10 ** 18;
         uint256 burnAmount = 300 * 10 ** 18;
+        uint256 initialSupply = 10_000 * 10 ** 18;
         
         vm.prank(tutor1);
         ipt.mint(user1, mintAmount);
@@ -74,7 +78,7 @@ contract IPTTest is Test {
         ipt.burn(burnAmount);
         
         assertEq(ipt.balanceOf(user1), mintAmount - burnAmount);
-        assertEq(ipt.totalSupply(), mintAmount - burnAmount);
+        assertEq(ipt.totalSupply(), initialSupply + mintAmount - burnAmount);
     }
 
     function test_GrantTutorRole() public {
