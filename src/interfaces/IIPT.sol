@@ -22,6 +22,19 @@ interface IIPT is IERC20, IERC20Metadata, IAccessControl {
     /// @param amount Amount of tokens to burn
     function burn(uint256 amount) external;
 
+    /// @dev Freezes an account - frozen addresses cannot transfer or receive tokens
+    /// @param account Address to freeze
+    function freeze(address account) external;
+
+    /// @dev Unfreezes an account
+    /// @param account Address to unfreeze
+    function unfreeze(address account) external;
+
+    /// @dev Checks if an account is frozen
+    /// @param account Address to check
+    /// @return true if the account is frozen
+    function isFrozen(address account) external view returns (bool);
+
     /// @dev Grants tutor role to a new address (only for administrator)
     /// @param tutor Address to be granted the tutor role
     function grantTutorRole(address tutor) external;

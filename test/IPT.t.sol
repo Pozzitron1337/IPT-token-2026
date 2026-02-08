@@ -135,4 +135,95 @@ contract IPTTest is Test {
         assertEq(ipt.balanceOf(user1), 0);
         assertEq(ipt.balanceOf(user2), amount);
     }
+
+    function test_Freeze() public {
+        vm.prank(tutor1);
+        ipt.freeze(user1);
+        
+        assertTrue(ipt.isFrozen(user1));
+        assertFalse(ipt.isFrozen(user2));
+    }
+
+    function test_FreezeBlocksTransfer() public {
+        uint256 amount = 500 * 10 ** 18;
+        vm.prank(tutor1);
+        ipt.mint(user1, amount);
+        
+        vm.prank(tutor1);
+        ipt.freeze(user1);
+        
+        vm.prank(user1);
+        vm.expectRevert("IPT: Sender frozen");
+        ipt.transfer(user2, amount);
+        
+        assertEq(ipt.balanceOf(user1), amount);
+        assertEq(ipt.balanceOf(user2), 0);
+    }
+
+    function test_FreezeBlocksReceive() public {
+        uint256 amount = 500 * 10 ** 18;
+        vm.prank(tutor1);
+        ipt.mint(user1, amount);
+        
+        vm.prank(tutor1);
+        ipt.freeze(user2);
+        
+        vm.prank(user1);
+        vm.expectRevert("IPT: Receiver frozen");
+        ipt.transfer(user2, amount);
+        
+        assertEq(ipt.balanceOf(user1), amount);
+        assertEq(ipt.balanceOf(user2), 0);
+    }
+
+    function test_FreezeBlocksMint() public {
+        vm.prank(tutor1);
+        ipt.freeze(user1);
+        
+        vm.prank(tutor1);
+        vm.expectRevert("IPT: Receiver frozen");
+        ipt.mint(user1, 1000 * 10 ** 18);
+    }
+
+    function test_Unfreeze() public {
+        vm.prank(tutor1);
+        ipt.freeze(user1);
+        assertTrue(ipt.isFrozen(user1));
+        
+        vm.prank(tutor1);
+        ipt.unfreeze(user1);
+        assertFalse(ipt.isFrozen(user1));
+    }
+
+    function test_UnfreezeAllowsTransfer() public {
+        uint256 amount = 500 * 10 ** 18;
+        vm.prank(tutor1);
+        ipt.mint(user1, amount);
+        
+        vm.prank(tutor1);
+        ipt.freeze(user1);
+        vm.prank(tutor1);
+        ipt.unfreeze(user1);
+        
+        vm.prank(user1);
+        ipt.transfer(user2, amount);
+        
+        assertEq(ipt.balanceOf(user1), 0);
+        assertEq(ipt.balanceOf(user2), amount);
+    }
+
+    function test_FreezeOnlyTutor() public {
+        vm.prank(user1);
+        vm.expectRevert();
+        ipt.freeze(user2);
+    }
+
+    function test_UnfreezeOnlyTutor() public {
+        vm.prank(tutor1);
+        ipt.freeze(user1);
+        
+        vm.prank(user1);
+        vm.expectRevert();
+        ipt.unfreeze(user1);
+    }
 }
