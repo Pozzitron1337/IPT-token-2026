@@ -5,7 +5,8 @@ import {Script, console} from "forge-std/Script.sol";
 import {IPT} from "../src/IPT.sol";
 
 /**
- * $ 
+ * $ forge script script/DeployIPT.s.sol:DeployIPT --rpc-url $SEPOLIA_RPC_URL --broadcast --chain sepolia -vvvv
+ * $ forge verify-contract <IPT_CONTRACT_ADDRESS> src/IPT.sol:IPT --chain sepolia --etherscan-api-key $ETHERSCAN_API_KEY
  */
 contract DeployIPT is Script {
     function run() public returns (IPT) {

@@ -5,6 +5,9 @@ import {Script, console} from "forge-std/Script.sol";
 import {Excell} from "../src/Excell.sol";
 import {IPT} from "../src/IPT.sol";
 
+/**
+ * $ forge script script/DeployExcell.s.sol:DeployExcell --rpc-url $SEPOLIA_RPC_URL --slow --broadcast --chain sepolia --verify -vvvv
+ */
 contract DeployExcell is Script {
     function run() public returns (Excell) {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
@@ -12,17 +15,15 @@ contract DeployExcell is Script {
         
         vm.startBroadcast(deployerPrivateKey);
         
-        // Deploy IPT token first if not already deployed
-        // For testing, you can deploy a new one or use existing address
-        IPT ipt = new IPT();
-        console.log("IPT Token deployed at:", address(ipt));
+        address iptAddress = 0x2D47F6302111AFEfD2f7B683d2a0b1EE42C9f57A;
+        console.log("IPT Token deployed at:", iptAddress);
         
         // Deploy Excell contract
-        Excell excell = new Excell(address(ipt));
+        Excell excell = new Excell(iptAddress);
         
         console.log("Excell contract deployed at:", address(excell));
         console.log("Deployer (Admin):", deployer);
-        console.log("IPT Token address:", address(ipt));
+        console.log("IPT Token address:", iptAddress);
         
         vm.stopBroadcast();
         
